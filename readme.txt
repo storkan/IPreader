@@ -1,20 +1,5 @@
 Author and Copyright owner: Jörn Schmedt auf der Günne
 Years 2013-2021
-#----------------------------------------------
-#Installation:
-0.) tar xvzf ipreader-1.4.tar.gz
-1.) cd ipreader-1.4
-2.) sudo mkdir -p /usr/local/Library/IPreader
-3.) sudo cp Makefile libtiffread-1.c ipreader-1.4.tcl /usr/local/Library/IPreader
-4.) sudo cp utilities/gnuplot1Daverage.tcl /usr/local/bin/gnuplot1Daverage
-4.) cd /usr/local/Library/IPreader
-5.) make
-6.) cd /usr/local/bin
-7.) ln -s /usr/local/Library/IPreader/ipreader-1.4.tcl /usr/local/bin/ipreader
-8.) sudo chmod +x /usr/local/bin/ipreader /usr/local/bin/gnuplot1Daverage
-
-#dependencies (ubuntu-20.04)
-apt-get install make gcc libtiff4-dev tcl-dev tk-dev tcllib libtk-img libtk-img-dev pngtools libtiff-tools blt
 
 #----------------------------------------------
 #Usage:
@@ -57,6 +42,22 @@ gnuplot1Daverage LaB6-1.xy LaB6-2.xy LaB6-3.xy
 The directory examples contains an example "gel" file and a set of three xy files which
 may serve as an example for the averaging script.
 
+#----------------------------------------------
+#Installation:
+0.) tar xvzf ipreader-1.4.tar.gz
+1.) cd ipreader-1.4
+2.) sudo mkdir -p /usr/local/Library/IPreader
+3.) sudo cp Makefile libtiffread-1.c ipreader-1.4.tcl /usr/local/Library/IPreader
+4.) sudo cp utilities/gnuplot1Daverage.tcl /usr/local/bin/gnuplot1Daverage
+4.) cd /usr/local/Library/IPreader
+5.) make
+6.) cd /usr/local/bin
+7.) ln -s /usr/local/Library/IPreader/ipreader-1.4.tcl /usr/local/bin/ipreader
+8.) sudo chmod +x /usr/local/bin/ipreader /usr/local/bin/gnuplot1Daverage
+
+#dependencies (ubuntu-20.04)
+apt-get install make gcc libtiff4-dev tcl-dev tk-dev tcllib libtk-img libtk-img-dev pngtools libtiff-tools blt
+#----------------------------------------------
 #license
 The software is published under the license conditions of the GNU General Public License.
 A copy of this license you have downloaded with this software package.
