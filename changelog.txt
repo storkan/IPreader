@@ -1,3 +1,15 @@
+--------------------------------------
+11.12.2021 version 1.5
+-added: blue lines of the reference compound are displayed with intensities
+-added: libtiffread-1.c stdev determined from scatter of pixels in image columns
+-added: stdev saveable with every datapoint in dat format
+-added: gamma for thumbnail is used: tif 0.01, gel 1.0, png 0.1
+-fixed: error peakpicking if too many or too few peaks are picked
+-fixed: error in peakpicking when trying to find closest peaks 
+-changed: the y-scale is scaled by 2^bits => closer to counts
+-changed: data export on raw
+-added: information about differences in y-scale between tif and gel files; the latter use a sqrt compression
+--------------------------------------
 14.11.2021 version 1.4
 -changed: the peak picked list also work now when only two peaks are picked
 -added: detection gel files which are scanned the wrong way round
