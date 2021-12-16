@@ -1,29 +1,33 @@
 #!/usr/bin/wish8.6 -f
 # ideas:
+#-gamma-value for thumbnail with scaler
+#-conversion factor y-scale to counts (optional)
+#-change y-scale to logscale (optional with checkbox; mind zero-values have to be changed)
+#    .main.midgraph axis configure y -logscale yes
 #-manual peak assignment (would allow analysis of mixtures)
-#-tell user to increase exposure time
+#-GUI shows values and allow to change scaleA and scaleB manually and fits on the peaks close
+#-tell user to increase exposure time if possible y-scale 0.2 or smaller
+#-use y-stdev instead of noise (as currently) for peak picking 
 #-show found and assigned peaks while referencing; allow editing
 #-export txt raw and xy always
-#-make screenshot-movie with vlc to explain about usage
-#-replace BLT routines by home written routines
-#-interpolate with 3rd order polynom
-#-4 traces: reference; background; reference+analyte; analyte;
+#-make screenshot-movie (gif/mp4) to explain about usage
+#   -replace BLT routines by home written routines
+#   -interpolate with 3rd order polynom
+#   -4 traces: reference; background; reference+analyte; analyte;
 #-fix bugs: domain error when working with png and setting scale
 #-make use of the assumption that users approximately always scan a film-range of approx. 90°
-#-GUI shows values and allow to change scaleA and scaleB manually
-#-develop defined test set: various format png, tif, gel, various resolutions, various bit
-#-enlarge/zoom button
+#!!!-develop defined test set: various format png, tif, gel, various resolutions, various bit
+#   -enlarge/zoom button
 #-calculate start values for different cameras from scale
 #-read resolution from picture
-#-read bit from picture file (import for png and tiff)
+#-read bits from picture file (import for png and tiff)
 #-check whether there are more than 16384 points (STOE problem?!)
-#-generator field for generator settings
+#   -generator/PMT voltage fields for generator settings
 #-give hints how to install missing libraries and recompile if necessary
 #-check whether img and BLT are there otherwise stop with a message
-#-read create time from tiff, png and save to raw, xy etc.
+#   -read create time from tiff, png and save to raw, xy etc.
 #-catch errors: when selection box not set no take
-#-automatic positive or negative recognition (take average, if > 0.5 invert) (film read in inverted direction)
-#-three trace diffractograms: reference/sample/reference => interpolation for sample scan
+#   -three trace diffractograms: reference/sample/reference => interpolation for sample scan
 #-C: auto-rotate by small angles
 package require BLT 2.5
 package require img::png
@@ -33,9 +37,9 @@ package require png
 package require math::statistics
 #tcllib is required
 load /usr/local/Library/IPreader/libtiffread1[info sharedlibextension]
-#important: a released version must not have more than 3 characters for the version
+#important: a released version must not have more than 3 characters for the version number
 #otherwise export to STOE raw will not work
-set gui(version) 1.4
+set gui(version) 1.5
 set gui(fontbold) "helvetica 10 bold"
 set gui(fontbigbold) "helvetica 11 bold"
 set gui(fontnormal) "helvetica 10 normal"
@@ -55,7 +59,8 @@ set gui(subsamplew) 0
 set gui(subsampleh) 0
 set gui(picthumbh) 0
 set gui(picthumbw) 0
-set gui(bit) 8
+set gui(bit) 16
+set gui(maxyvalue) 65535
 set gui(sampletypes) [list "alpha-SiO2" "Si-diamond" "CaWO4 tetragonal" "C-diamond" "LaB6" "sample"]
 set gui(refdatasets) [list "refSiO2alpha" "refSi" "refCaWO4" "refC" "refLaB6"]
 set gui(sampletype1) "sample"
@@ -2296,8 +2301,8 @@ proc savediff {graphnumber} {
   set thetaend [lindex $gui(xdata1$graphnumber) end]
   set thetastep [expr {[lindex $gui(xdata1$graphnumber) 1]-[lindex $gui(xdata1$graphnumber) 0]}]
   set numberofpoints [llength $gui(ydata$graphnumber)]
-  foreach x $gui(xdata1$graphnumber) y $gui(ydata$graphnumber) {
-    append output1 "$x $y \n"
+  foreach x $gui(xdata1$graphnumber) y $gui(ydata$graphnumber) ystdev $gui(ydatastdev$graphnumber) {
+    append output1 "$x $y $ystdev\n"
     append output2 "$x $y \n"
     if {$minint > $y} {
       set minint $y
@@ -2324,7 +2329,7 @@ proc savediff {graphnumber} {
     set fileformat "RAW_1.06RAWDAT"
     puts -nonewline $channel [binary format A* $fileformat]
     zerostochannel $channel 2
-    set timepoint [clock  seconds]
+    set timepoint [clock seconds]
 #    set createdtime "02-Jan-14 15:25"
     set createdtime [clock format $timepoint -format {%d-%b-%y %H:%M}]
     puts -nonewline $channel [binary format A* $createdtime]
@@ -2480,12 +2485,16 @@ proc savediff {graphnumber} {
     set unknown 293.15
     puts -nonewline $channel [binary format r* $unknown]
     zerostochannel $channel 32
-    puts -nonewline $channel [binary format s* [expr {int((32768-1)*$minint)}]]
+#    puts -nonewline $channel [binary format s* [expr {int((32768-1)*$minint)}]]
+    set scale [expr {pow(2.0,$gui(bit))-1.0}]
+    puts -nonewline $channel [binary format s* [expr {int($minint/$scale*(32768-1))}]]
     zerostochannel $channel 2
-    puts -nonewline $channel [binary format s* [expr {int((32768-1)*$maxint)}]]
+#    puts -nonewline $channel [binary format s* [expr {int((32768-1)*$maxint)}]]
+    puts -nonewline $channel [binary format s* [expr {int($maxint/$scale*(32768-1))}]]
     zerostochannel $channel 386
     foreach y $gui(ydata$graphnumber) {
-      puts -nonewline $channel [binary format s* [expr {int((32768-1)*$y)}]]
+#      puts -nonewline $channel [binary format s* [expr {int((32768-1)*$y)}]]
+      puts -nonewline $channel [binary format s* [expr {int($y/$scale*(32768-1))}]]
     }
     zerostochannel $channel 484
     eof   $channel
@@ -2536,7 +2545,7 @@ proc savitzkygolay {xdata ydata {avgpoints 2}} {
 
 proc takeboxselection {graphnumber} {
   global gui
-  set scale [expr {pow(2.0,$gui(bit))-1.0}]
+#  set scale [expr {pow(2.0,$gui(bit))-1.0}]
   set xordered [lsort -integer [list $gui(x1s) $gui(x2s)]]
   set yordered [lsort -integer [list $gui(y1s) $gui(y2s)]]
   set ixmin [expr {[lindex $xordered 0]*$gui(subsamplew)}]
@@ -2556,7 +2565,24 @@ proc takeboxselection {graphnumber} {
   }
 #read data from image
   if {[file extension $gui(filename)] == ".gel"} {
-    set gui(ydata$graphnumber) [split [string trim [readtiff $gui(filename) $ixmin $ixmax $iymin $iymax]]]
+#gel file format uses a sqrt compression
+#see operation instruction Typhoon FLA7000 scanner
+    set gui(bit) 16
+    set gui(maxyvalue) 65535.0
+    set scale [expr {pow(2.0,$gui(bit))-1.0}]
+    set y_sigma [split [string trim [readtiff $gui(filename) $ixmin $ixmax $iymin $iymax 0]]]
+    set meanylist ""
+    set stdevylist ""
+    set np [llength $y_sigma]
+    for {set i 0} {$i < $np} {incr i} {
+      set mean [expr {$gui(maxyvalue)*[lindex $y_sigma $i]}]
+      lappend meanylist $mean
+      incr i
+      set stdev [expr {$gui(maxyvalue)*[lindex $y_sigma $i]}]
+      lappend stdevylist $stdev
+    }
+    set gui(ydata$graphnumber) $meanylist
+    set gui(ydatastdev$graphnumber) $stdevylist
     set x 0.0
     set gui(noise$graphnumber) [detnoisedata $gui(ydata$graphnumber)]
     set gui(avg$graphnumber) [detavg $gui(ydata$graphnumber)]
@@ -2565,18 +2591,34 @@ proc takeboxselection {graphnumber} {
       lappend gui(xdata0$graphnumber) $x
     }
   } elseif {[file extension $gui(filename)] == ".tif"} {
-    set gui(ydata$graphnumber) [split [string trim [readtiff $gui(filename) $ixmin $ixmax $iymin $iymax]]]
+#tif file format uses a linear scale
+    set gui(maxyvalue) 65535.0
+    set gui(bit) 16
+    set scale [expr {pow(2.0,$gui(bit))-1.0}]
+    set y_sigma [split [string trim [readtiff $gui(filename) $ixmin $ixmax $iymin $iymax 1]]]
+    set meanylist ""
+    set stdevylist ""
+    set np [llength $y_sigma]
+    for {set i 0} {$i < $np} {incr i} {
+      set mean [expr {$gui(maxyvalue)*[lindex $y_sigma $i]}]
+      lappend meanylist $mean
+      incr i
+      set stdev [expr {$gui(maxyvalue)*[lindex $y_sigma $i]}]
+      lappend stdevylist $stdev
+    }
+    set gui(ydata$graphnumber) $meanylist
+    set gui(ydatastdev$graphnumber) $stdevylist
     set x 0.0
     set gui(noise$graphnumber) [detnoisedata $gui(ydata$graphnumber)]
     set gui(avg$graphnumber) [detavg $gui(ydata$graphnumber)]
-    set tmp ""
     foreach y $gui(ydata$graphnumber) {
       set x [expr {$x+500.0*$gui(picres)}]
       lappend gui(xdata0$graphnumber) $x
-      lappend tmp [expr {sqrt($y)}]
     }
-    set gui(ydata$graphnumber) $tmp
   } else {
+    set gui(bit) 8
+    set gui(maxyvalue) 256.0
+    set scale [expr {pow(2.0,$gui(bit))-1.0}]
     for {set i $ixmin} {$i <= $ixmax} {incr i} {
       set sum 0.0
       for {set j $iymin} {$j <= $iymax} {incr j} {
@@ -2597,11 +2639,11 @@ proc takeboxselection {graphnumber} {
       set gui(ydatamin$graphnumber) $z
     }
   }
-  if {$gui(ydatamax$graphnumber) == 1.0} {
+  if {$gui(ydatamax$graphnumber) > [expr $gui(maxyvalue)*0.97]} {
     set xfilereply [tk_messageBox -message "You try to extract a trace from the diffractogram with saturated points. This will most likely cause subsequent errors. Reduce the exposure time." \
         -type ok]
   }
-#   now available: gui(xdata0$graphnumber) gui(ydata$graphnumber)
+#   now available: gui(xdata0$graphnumber) gui(ydata$graphnumber) gui(ydatastdev$graphnumber)
 #   not yet available: maxxdata0 maxydata
 #                      gui(xdata0$graphnumber)
 #apply savitzky golay filter to suppress noise
@@ -2899,9 +2941,9 @@ proc readimage {} {
         saveAs\(\"GEL\", \"[file root $gui(filename)]-rot.gel\"\);\n\
        " "macro.imj"
       exec [auto_execok java] -jar /usr/share/java/ij.jar -Xmx1666m -batch macro.imj
-      set gui(pic) [image create photo -file "[file root $gui(filename)]-rot.gel"]
+      set gui(pic) [image create photo -gamma 1.0 -file "[file root $gui(filename)]-rot.gel"]
     } else {
-      set gui(pic) [image create photo -file $gui(filename)]
+      set gui(pic) [image create photo -gamma 1.0 -file $gui(filename)]
     }
   } elseif {[file extension $gui(filename)] == ".tif" || [file extension $gui(filename)] == ".tiff"} {
     set tiffinfo1 [::tiff::dimensions $gui(filename)]
@@ -2916,9 +2958,9 @@ proc readimage {} {
         saveAs\(\"TIF\", \"[file root $gui(filename)]-rot.tif\"\);\n\
        " "macro.imj"
       exec [auto_execok java] -jar /usr/share/java/ij.jar -Xmx1666m -batch macro.imj
-      set gui(pic) [image create photo -file "[file root $gui(filename)]-rot.tif"]
+      set gui(pic) [image create photo -gamma 0.02 -file "[file root $gui(filename)]-rot.tif"]
     } else {
-      set gui(pic) [image create photo -file $gui(filename)]
+      set gui(pic) [image create photo -gamma 0.02 -file $gui(filename)]
     }
   } elseif {[file extension $gui(filename)] == ".png"} {
     set pnginfo1 [exec [auto_execok pnginfo] $gui(filename)]
@@ -2941,13 +2983,19 @@ proc readimage {} {
         saveAs\(\"PNG\", \"[file root $gui(filename)]-rot.png\"\);\n\
        " "macro.imj"
       exec [auto_execok java] -jar /usr/share/java/ij.jar -Xmx1666m -batch macro.imj
-      set gui(pic) [image create photo -file "[file root $gui(filename)]-rot.png"]
+      set gui(pic) [image create photo -gamma 0.1 -file "[file root $gui(filename)]-rot.png"]
     } else {
-      set gui(pic) [image create photo -file $gui(filename)]
+      set gui(pic) [image create photo -gamma 0.1 -file $gui(filename)]
     }
   }
   if {$gui(filename) != ""} {
-    set gui(picth) [image create photo]
+    if {[file extension $gui(filename)] == ".tif" || [file extension $gui(filename)] == ".tiff"} {
+      set gui(picth) [image create photo -gamma 0.01]
+    } elseif {[file extension $gui(filename)] == ".gel"} {
+      set gui(picth) [image create photo -gamma 1.0]
+    } else {
+      set gui(picth) [image create photo -gamma 0.1]
+    }
     set gui(pich) [image height $gui(pic)]
     set gui(picw) [image width $gui(pic)]
     set gui(subsamplew) [expr {$gui(picw)/$gui(imagewidth)+1}]
@@ -2994,50 +3042,55 @@ proc peakpick {xdata ydata noise} {
 #           difference between overcomes a threshold of nfactor1*$noise find next maximum
 #           when maximum had been found proceed without searching for new maximum until nfactor2*noise away from y(max)
 #assumptions: sharp well defined peaks allow to make estimates for iavg and nfactor
+  global gui
+  set noise [expr {$noise/$gui(maxyvalue)}]
   set peaklist ""
-  set nfactor1 20.5
-  set nfactor2 9.5
+  set nfactor1 35.5
+  set nfactor2 35.5
+#  set nfactor1 20.5
+#  set nfactor2 9.5
   set iavg1 4
   set iavg2 28
   set avg1 0.0
   set avg2 0.0
   for {set i [expr {$iavg2-$iavg1}]} {$i < $iavg2} {incr i} {
-    set avg1 [expr {[lindex $ydata $i]+$avg1}]
+    set avg1 [expr {[lindex $ydata $i]/$gui(maxyvalue)+$avg1}]
   }
   for {set i 0} {$i < $iavg2} {incr i} {
-    set avg2 [expr {[lindex $ydata $i]+$avg2}]
+    set avg2 [expr {[lindex $ydata $i]/$gui(maxyvalue)+$avg2}]
   }
   for {set i $iavg2} {$i < [llength $ydata]} {incr i} {
-    set avg1 [expr {$avg1 + [lindex $ydata $i] - [lindex $ydata [expr {$i-$iavg1}]]}]
-    set avg2 [expr {$avg2 + [lindex $ydata $i] - [lindex $ydata [expr {$i-$iavg2}]]}]
+    set avg1 [expr {$avg1 + ([lindex $ydata $i] - [lindex $ydata [expr {$i-$iavg1}]])/$gui(maxyvalue)}]
+    set avg2 [expr {$avg2 + ([lindex $ydata $i] - [lindex $ydata [expr {$i-$iavg2}]])/$gui(maxyvalue)}]
     if {[expr {$noise*$nfactor1}] < [expr {$avg1/$iavg1- $avg2/$iavg2}] } {
       incr i
-      set avg1 [expr {$avg1 + [lindex $ydata $i] - [lindex $ydata [expr {$i-$iavg1}]]}]
-      set avg2 [expr {$avg2 + [lindex $ydata $i] - [lindex $ydata [expr {$i-$iavg2}]]}]
+      set avg1 [expr {$avg1 + ([lindex $ydata $i] - [lindex $ydata [expr {$i-$iavg1}]])/$gui(maxyvalue)}]
+      set avg2 [expr {$avg2 + ([lindex $ydata $i] - [lindex $ydata [expr {$i-$iavg2}]])/$gui(maxyvalue)}]
       set max -999999
       set imax -999999
-      while {$i < [expr {[llength $ydata]-1}] && ([expr {$max-$nfactor2*$noise}] < [lindex $ydata $i] || [expr {$imax+$iavg2}] > $i)} {
-        if {$max < [lindex $ydata $i]} {
-          set max [lindex $ydata $i]
+      while {$i < [expr {[llength $ydata]-1}] && ([expr {$max-$nfactor2*$noise}] < [expr {[lindex $ydata $i]/$gui(maxyvalue)}] || [expr {$imax+$iavg2}] > $i)} {
+        if {$max < [expr {[lindex $ydata $i]/$gui(maxyvalue)}]} {
+          set max [expr {[lindex $ydata $i]/$gui(maxyvalue)}]
           set imax $i
         }
         incr i
-        set avg1 [expr {$avg1 + [lindex $ydata $i] - [lindex $ydata [expr {$i-$iavg1}]]}]
-        set avg2 [expr {$avg2 + [lindex $ydata $i] - [lindex $ydata [expr {$i-$iavg2}]]}]
+        set avg1 [expr {$avg1 + ([lindex $ydata $i] - [lindex $ydata [expr {$i-$iavg1}]])/$gui(maxyvalue)}]
+        set avg2 [expr {$avg2 + ([lindex $ydata $i] - [lindex $ydata [expr {$i-$iavg2}]])/$gui(maxyvalue)}]
       }
       set x1 [lindex $xdata $imax]
       set x2 [lindex $xdata [expr {$imax+1}]]
       set x3 [lindex $xdata [expr {$imax-1}]]
-      set y1 [lindex $ydata $imax]
-      set y2 [lindex $ydata [expr {$imax+1}]]
-      set y3 [lindex $ydata [expr {$imax-1}]]
+      set y1 [expr {[lindex $ydata $imax]/$gui(maxyvalue)}]
+      set y2 [expr {[lindex $ydata [expr {$imax+1}]]/$gui(maxyvalue)}]
+      set y3 [expr {[lindex $ydata [expr {$imax-1}]]/$gui(maxyvalue)}]
       set a [expr {($x1*($y3-$y2)-$x2*$y3+$x3*$y2+($x2-$x3)*$y1)/($x1*($x3*$x3-$x2*$x2)-$x2*$x3*$x3+$x2*$x2*$x3+$x1*$x1*($x2-$x3))}]
       set b [expr {-($x1*$x1*($y3-$y2)-$x2*$x2*$y3+$x3*$x3*$y2+($x2*$x2-$x3*$x3)*$y1)/($x1*($x3*$x3-$x2*$x2)-$x2*$x3*$x3+$x2*$x2*$x3+$x1*$x1*($x2-$x3))}]
       set c [expr {($x1*($x3*$x3*$y2-$x2*$x2*$y3)+$x1*$x1*($x2*$y3-$x3*$y2)+($x2*$x2*$x3-$x2*$x3*$x3)*$y1)/($x1*($x3*$x3-$x2*$x2)-$x2*$x3*$x3+$x2*$x2*$x3+$x1*$x1*($x2-$x3))}]
-      set xmax [expr {-$b/2.0/$a}]
-      set ymax [expr {$a*$xmax*$xmax+$b*$xmax+$c}]
-#      lappend peaklist [list [lindex $xdata $imax] $max]
-      lappend peaklist [list $xmax $ymax]
+      if {$a != 0.0 && $b != 0.0 && $c != 0.0} {
+        set xmax [expr {-$b/2.0/$a}]
+        set ymax [expr {($a*$xmax*$xmax+$b*$xmax+$c)*$gui(maxyvalue)}]
+        lappend peaklist [list $xmax $ymax]
+      }
     }
   }
   return $peaklist
@@ -3108,11 +3161,11 @@ proc drawdvalues {graphnum} {
       set dvalue [hkl2dvalue $a $b $c $alpha $beta $gamma [lindex $hkl 1] [lindex $hkl 2] [lindex $hkl 3]]
       if {$graphnum == 1 && $dvalue >= [expr $gui(wavelength)/2.0]} {
         set theta [expr {asin($gui(wavelength)/$dvalue/2.0)/$piby180*2.0}]
-        set int [expr {[lindex $hkl 0]/$norm}]
+        set int [expr {[lindex $hkl 0]/$norm*$gui(ydatamax$graphnum)}]
         .main.botgraph marker create line -name marker$i -coords [list $theta 0.0 $theta $int] -outline blue
       } elseif {$graphnum == 0 && $dvalue >= [expr $gui(wavelength)/2.0]} {
         set theta [expr {asin($gui(wavelength)/$dvalue/2.0)/$piby180*2.0}]
-        set int [expr {[lindex $hkl 0]/$norm}]
+        set int [expr {[lindex $hkl 0]/$norm*$gui(ydatamax$graphnum)}]
         .main.midgraph marker create line -name marker$i -coords [list $theta 0.0 $theta $int] -outline blue
       }
       incr i
@@ -3126,14 +3179,14 @@ proc drawdvalues {graphnum} {
       lappend exdata [lindex $xy 0]
     }
 #IP contains no saturated area but too few points
-    if {[llength $exydatasortedbyint] == 1 && [lindex [lindex $exydatasortedbyint 0] 1] < 0.999999} {
+    if {[llength $exydatasortedbyint] == 1 && [lindex [lindex $exydatasortedbyint 0] 1] < [expr {0.97*$gui(maxyvalue)}]} {
       set gui(scaleA) [expr {(-[lindex [lindex $exydatasortedbyint 0] 0]*$gui(scaleB)+$thetamax)}]
       set gui(scaleB) 0.99401602354
       set gui(scaleAerror) -1
       set gui(scaleBerror) -1
       set gui(numpoints) -1
 #IP contains no saturated area and two points
-    } elseif {[llength $exydatasortedbyint] == 2 && [lindex [lindex $exydatasortedbyint 0] 1] < 0.999999} {
+    } elseif {[llength $exydatasortedbyint] == 2 && [lindex [lindex $exydatasortedbyint 0] 1] < [expr {0.97*$gui(maxyvalue)}]} {
 # exydatasortedbyint exydatasortedbytheta txydatasortedbyint txydatasortedbytheta
       #assign biggest peak
       #from this and the neigboring peak setup scale
@@ -3154,7 +3207,7 @@ proc drawdvalues {graphnum} {
         set gui(numpoints) -1
       }
 #IP contains no saturated area and sufficient points
-    } elseif {[llength $exydatasortedbyint] > 2 && [lindex [lindex $exydatasortedbyint 0] 1] < 0.999999} {
+    } elseif {[llength $exydatasortedbyint] > 2 && [lindex [lindex $exydatasortedbyint 0] 1] < [expr {$gui(maxyvalue)*0.97}]} {
 #assign peaks:
 #try different biggest peaks and take best correlation
       set fittedscales ""
@@ -3166,26 +3219,26 @@ proc drawdvalues {graphnum} {
         set gui(numpoints) -1
         set exp2theo [list [list $k 0]]
 #2.) then assign by difference in theta values
-        for {set i 0} {$i < [llength $exydatasortedbyint]} {incr i} {
+        for {set i 0} {$i < [llength $txydatasortedbyint] && $i < [llength $exydatasortedbyint]} {incr i} {
+#match i-th experimental data point with j-th (= smallesti) theoretical peak
           if {$i != $k} {
             set x [lindex [lindex $exydatasortedbyint $i] 0]
             set xcor [expr {$gui(scaleB)*$x+$gui(scaleA)}]
-            set difflist ""
+            set diffxlist ""
             foreach tx $txydatasortedbyint {
-              lappend difflist [expr {abs($xcor-[lindex $tx 0])}]
+              lappend diffxlist [expr {abs($xcor-[lindex $tx 0])}]
             }
             set smallesti -9
-            set smallesty 1E9
+            set smallestxdiff 1.0E50
             set j 0
-            foreach diff $difflist {
-              if {$diff < $smallesty} {
+            foreach diffx $diffxlist {
+              if {$diffx < $smallestxdiff} {
                 set smallesti $j
-                set smallesty $diff
+                set smallestxdiff $diffx
               }
               incr j
             }
-
-            if {$smallesty < 1.0} {
+            if {$smallestxdiff < 5.0} {
               lappend exp2theo [list $i $smallesti]
             }
 #calc new scaleA scaleB
@@ -3252,7 +3305,7 @@ proc drawdvalues {graphnum} {
       }
     }
 #IP contains saturated area
-  } elseif {[info exists exydatasortedbyint] && [llength $exydatasortedbyint] > 1 && [lindex [lindex $exydatasortedbyint 0] 1] > 0.999999} {
+  } elseif {[info exists exydatasortedbyint] && [llength $exydatasortedbyint] > 1 && [lindex [lindex $exydatasortedbyint 0] 1] > [expr {$gui(maxyvalue)*0.97}]} {
       set gui(scaleA) [expr {(-[lindex [lindex $exydatasortedbyint 1] 0]*$gui(scaleB)+$thetamax)}]
   }
 #recalculate xscales and update both diagrams
@@ -3264,7 +3317,7 @@ proc maingui {} {
   wm title . "IP reader-$gui(version), filename:[lindex [file split $gui(filename)] end]"
 #initialize canvas
   frame .menu -relief raised -borderwidth 2
-  frame .main 
+  frame .main
 #menu
   menubutton .menu.help -text "?" -menu .menu.help.m -underline 0
   menubutton .menu.file -text "file" -menu .menu.file.m -underline 0
@@ -3367,4 +3420,3 @@ if {[llength $argv]==1} {
   puts "filename   = filename of a png graphic"
   exit 1
 }
-
