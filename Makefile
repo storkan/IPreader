@@ -1,23 +1,13 @@
 VERSION = 0.1
 
-# Linux (Ubuntu 12.04)
-TCLLIB=/usr/lib/tcl8.5
-TCLINC=/usr/include/tcl8.5
+TCLLIB=/usr/lib/tcl8.6
+TCLINC=/usr/include/tcl8.6
 INCLUDES = -I$TCLINC
-LIBRARIES = -lm -ltiff -ltclstub8.5 -L$TCLLIB
+LIBRARIES = -lm -ltiff -ltclstub8.6 -L$TCLLIB
 BINDIR = /usr/local/bin
-CC = gcc-4.5
+CC = gcc
 #CC= clang
 
-# Linux (Ubuntu 12.04, MPI)
-#INCLUDES = -I/usr/include/tcl8.5 -I/usr/lib/openmpi/include/
-#LIBRARIES = -lm -ltiff
-#BINDIR = /usr/local/bin
-#EXTRA_FLAGS = -DMPI
-#OMPI_CC=gcc-4.5
-#CC = mpicc.openmpi
-
-#SRC = tiffread-3.c
 OBJ = $(SRC:.c=.o)
 STRIP = strip
 CP = cp
@@ -33,4 +23,3 @@ clean:
 #install:
 #	$(STRIP) simpson
 #	$(CP) simpson $(BINDIR)
-
