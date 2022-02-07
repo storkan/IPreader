@@ -1,4 +1,18 @@
 --------------------------------------
+05.02.2022 version 1.7
+-fixed: errors caused in automatic scale calculation: code cleanup, proc make2thetalist added, doubles in reference peaklist removed, 
+                      when peaks are assigned it is checked whether a reference peak had already been used before
+-added: adjustable gamma value for loaded images
+-fixed: "tiff" (but not "tif") files were sometimes read in 8bit instead of 16bit mode
+-fixed: correct handling of images which have the wrong orientation and need to be rotated with imagej via scripting
+-fixed: upon reading a new file different settings are reseted, lines and markers are removed
+-changed: if selection box is too small disable take selection
+--------------------------------------
+30.01.2022 version 1.6
+-added: manual mode for scale calibration added
+        includes: explicit field for scale parameters which can be changed manually,
+        fitted-checkbox when clicked matches peaks and runs a linear regression to determine optimal scale parameters
+--------------------------------------
 11.12.2021 version 1.5
 -added: blue lines of the reference compound are displayed with intensities
 -added: libtiffread-1.c stdev determined from scatter of pixels in image columns
