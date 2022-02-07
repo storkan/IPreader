@@ -1,34 +1,4 @@
 #!/usr/bin/wish8.6 -f
-# ideas:
-#-gamma-value for thumbnail with scaler
-#-conversion factor y-scale to counts (optional)
-#-change y-scale to logscale (optional with checkbox; mind zero-values have to be changed)
-#    .main.midgraph axis configure y -logscale yes
-#-manual peak assignment (would allow analysis of mixtures)
-#-GUI shows values and allow to change scaleA and scaleB manually and fits on the peaks close
-#-tell user to increase exposure time if possible y-scale 0.2 or smaller
-#-use y-stdev instead of noise (as currently) for peak picking 
-#-show found and assigned peaks while referencing; allow editing
-#-export txt raw and xy always
-#-make screenshot-movie (gif/mp4) to explain about usage
-#   -replace BLT routines by home written routines
-#   -interpolate with 3rd order polynom
-#   -4 traces: reference; background; reference+analyte; analyte;
-#-fix bugs: domain error when working with png and setting scale
-#-make use of the assumption that users approximately always scan a film-range of approx. 90°
-#!!!-develop defined test set: various format png, tif, gel, various resolutions, various bit
-#   -enlarge/zoom button
-#-calculate start values for different cameras from scale
-#-read resolution from picture
-#-read bits from picture file (import for png and tiff)
-#-check whether there are more than 16384 points (STOE problem?!)
-#   -generator/PMT voltage fields for generator settings
-#-give hints how to install missing libraries and recompile if necessary
-#-check whether img and BLT are there otherwise stop with a message
-#   -read create time from tiff, png and save to raw, xy etc.
-#-catch errors: when selection box not set no take
-#   -three trace diffractograms: reference/sample/reference => interpolation for sample scan
-#-C: auto-rotate by small angles
 package require BLT 2.5
 package require img::png
 package require img::tiff
@@ -39,7 +9,7 @@ package require math::statistics
 load /usr/local/Library/IPreader/libtiffread1[info sharedlibextension]
 #important: a released version must not have more than 3 characters for the version number
 #otherwise export to STOE raw will not work
-set gui(version) 1.5
+set gui(version) 1.7
 set gui(fontbold) "helvetica 10 bold"
 set gui(fontbigbold) "helvetica 11 bold"
 set gui(fontnormal) "helvetica 10 normal"
@@ -77,7 +47,10 @@ set gui(numpoints) -1
 set gui(xdata00) [list 0.0 100.0]
 set gui(xdata01) [list 0.0 100.0]
 set gui(filename) "empty"
-
+set gui(midgraphfitted) 0
+set gui(botgraphfitted) 0
+set gui(gamma) 1.0
+set gui(gammascale) 10
 ######################
 catch {tk_getOpenFile foo bar}
 set ::tk::dialog::file::showHiddenBtn 0
@@ -2545,7 +2518,6 @@ proc savitzkygolay {xdata ydata {avgpoints 2}} {
 
 proc takeboxselection {graphnumber} {
   global gui
-#  set scale [expr {pow(2.0,$gui(bit))-1.0}]
   set xordered [lsort -integer [list $gui(x1s) $gui(x2s)]]
   set yordered [lsort -integer [list $gui(y1s) $gui(y2s)]]
   set ixmin [expr {[lindex $xordered 0]*$gui(subsamplew)}]
@@ -2590,7 +2562,7 @@ proc takeboxselection {graphnumber} {
       set x [expr {$x+500.0*$gui(picres)}]
       lappend gui(xdata0$graphnumber) $x
     }
-  } elseif {[file extension $gui(filename)] == ".tif"} {
+  } elseif {[file extension $gui(filename)] == ".tif" || [file extension $gui(filename)] == ".tiff"} {
 #tif file format uses a linear scale
     set gui(maxyvalue) 65535.0
     set gui(bit) 16
@@ -2616,6 +2588,7 @@ proc takeboxselection {graphnumber} {
       lappend gui(xdata0$graphnumber) $x
     }
   } else {
+#all other file formats
     set gui(bit) 8
     set gui(maxyvalue) 256.0
     set scale [expr {pow(2.0,$gui(bit))-1.0}]
@@ -2624,8 +2597,14 @@ proc takeboxselection {graphnumber} {
       for {set j $iymin} {$j <= $iymax} {incr j} {
         set sum [expr {$sum+[lindex [$gui(pic) get $i $j] 0]}]
       }
+      set average [expr {$sum/double(1.0+abs($iymin-$iymax))}]
+      set sumsqdifference 0.0
+      for {set j $iymin} {$j <= $iymax} {incr j} {
+        set sumsqdifference [expr {$sumsqdifference+pow([lindex [$gui(pic) get $i $j] 0]-$average,2)}]
+      }
       lappend gui(xdata0$graphnumber) [expr {double($i-$ixmin)*$gui(picres)*500.0}]
-      lappend gui(ydata$graphnumber) [expr {($scale-$sum/double(1.0+abs($iymin-$iymax)))/$scale}]
+      lappend gui(ydata$graphnumber) [expr {$scale-$average}]
+      lappend gui(ydatastdev$graphnumber) [expr {sqrt($sumsqdifference)/double(1.0+abs($iymin-$iymax))}]
     }
     set gui(avg$graphnumber) [detavg $gui(ydata$graphnumber)]
     set gui(noise$graphnumber) [detnoisedata $gui(ydata$graphnumber)]
@@ -2700,6 +2679,52 @@ proc takeboxselection {graphnumber} {
 }
 
 
+proc fitscale {graphnumber} {
+  global gui
+  if {$graphnumber == 1 && $gui(botgraphfitted) == 0} {
+    return
+  } elseif {$graphnumber == 0 && $gui(midgraphfitted) == 0} {
+    return
+  }
+  set piby180 [expr {acos(0.0)/90.0}]
+#pick peaks experimentaldata
+  set avgpoints 8
+  set ydata [savitzkygolay $gui(xdata0$graphnumber) $gui(ydata$graphnumber) $avgpoints]
+  set noise [expr {$gui(noise$graphnumber)*sqrt(3.0*(3.0*$avgpoints*$avgpoints-7.0)/(4.0*$avgpoints*($avgpoints*$avgpoints-4.0)))}]
+  set pickedpeakscurrentscale [peakpick $gui(xdata1$graphnumber) $gui(ydata$graphnumber) $noise]
+#list of reference values
+  set refnumber [lindex $gui(refdatasets) [lsearch $gui(sampletypes) $gui(sampletype$graphnumber)]]
+  set txydatasortedbytheta [make2thetalist $refnumber]
+  set refpeakscurrentscale ""
+  foreach peak $txydatasortedbytheta {
+    lappend refpeakscurrentscale [lindex $peak 0]
+  }
+#assign to each peak in reference list the closest peak found given the difference is not bigger than 0.1°
+#result is stored as a list of pairs of index numbers
+  set txdata ""
+  set exdata ""
+  foreach refpeak $refpeakscurrentscale {
+    foreach exppeak $pickedpeakscurrentscale {
+      if {[expr {abs($refpeak-[lindex $exppeak 0])}] < 0.1 } {
+        lappend txdata $refpeak
+        lappend exdata [expr {([lindex $exppeak 0]-$gui(scaleA))/$gui(scaleB)}]
+      }
+    }
+  }
+#linear regression
+  set reslinregr [::math::statistics::linear-model $exdata $txdata]
+  set gui(scaleA) [lindex $reslinregr 0]
+  set gui(scaleB) [lindex $reslinregr 1]
+  set gui(scaleAerror) [lindex $reslinregr 5]
+  set gui(scaleBerror) [lindex $reslinregr 7]
+  set gui(stddevy) [lindex $reslinregr 2]
+  set gui(correlationcoefficient) [lindex $reslinregr 3]
+  set gui(numpoints) [lindex $reslinregr 4]
+#set scale
+  updategraph
+}
+
+
 proc updategraph {} {
   global gui
 #scale xdata by scaleA and scaleB
@@ -2756,12 +2781,9 @@ proc mousebindings {} {
   }
   bind .main.topimage <ButtonPress-1> {
     global gui
-#activate take buttons
-  .main.midcontr.take configure -state normal
-  .main.botcontr.take configure -state normal
-#if pressed inside box => shift box
-#if pressed on line => change edge box
-#otherwise => linemode
+#if pressed inside box => shift box => box mode
+#if pressed on line => change edge box => edge mode
+#if pressed elsewhere => set corner for new box => corner mode
     set xs %x
     set ys %y
 #box mode
@@ -2858,7 +2880,16 @@ proc mousebindings {} {
   }
   bind .main.topimage <ButtonRelease-1> {
     global gui
-    set gui(boxmode) 0
+    if {[expr {abs($gui(x2s)-$gui(x1s))}] > 30 && [expr {abs($gui(y2s)-$gui(y1s))}]> 30 } {
+#activate take buttons
+      .main.midcontr.take configure -state normal
+      .main.botcontr.take configure -state normal
+      set gui(boxmode) 0
+    } else {
+#deactivate take
+      .main.midcontr.take configure -state disabled
+      .main.botcontr.take configure -state disabled
+    }
   }
 }
 
@@ -2907,14 +2938,31 @@ proc hlp_message {args} {
 
 proc readimage {} {
   global gui
-#disable buttons
+#disable buttons, reset entries
   .main.botcontr.take configure -state disabled
   .main.botcontr.save configure -state disabled
   .main.botcontr.sampletype configure -state disabled
   .main.midcontr.take configure -state disabled
   .main.midcontr.save configure -state disabled
   .main.midcontr.sampletype configure -state disabled
+  set gui(botgraphfitted) 0
+  .main.botcontr.chkbutton configure -state disabled
+  set gui(midgraphfitted) 0
+  .main.midcontr.chkbutton configure -state disabled
+  set gui(sampletype0) "sample"
+  set gui(sampletype1) "sample"
+  set gui(scaleA) 0.0
+  set gui(scaleB) 0.994
+  erasedvalues 0
+  erasedvalues 1
+  set gui(xdata10) [list 0.0 100.0]
+  set gui(xdata11) [list 0.0 100.0]
+  set gui(ydata0) [list 0.0 0.0]
+  set gui(ydata1) [list 0.0 0.0]
+ .main.botgraph element configure line1 -xdata $gui(xdata11) -ydata $gui(ydata1)
+ .main.midgraph element configure line1 -xdata $gui(xdata10) -ydata $gui(ydata0)
 #if images exists delete
+  set gui(gammascale) 10
   if {[array names gui pic] > -1} {
     image delete $gui(pic)
     unset gui(pic)
@@ -2927,7 +2975,7 @@ proc readimage {} {
     .main.topimage delete $gui(imageexpdiff)
     unset gui(imageexpdiff)
   }
-#pnginfo
+#gel file
   if {[file extension $gui(filename)] == ".gel"} {
     set tiffinfo1 [::tiff::dimensions $gui(filename)]
     set picw [lindex $tiffinfo1 0]
@@ -2935,16 +2983,21 @@ proc readimage {} {
     array set tiffinfo2 [::tiff::imageInfo $gui(filename)]
     set gui(picres) [expr {0.01/$tiffinfo2(XResolution)}]
     if {$pich > $picw} {
+      if {[file exists "[file root $gui(filename)]-rot.gel"]} {
+        file delete "[file root $gui(filename)]-rot.gel"
+      }
       string2file "\
         open\(\"$gui(filename)\"\);\n\
         run\(\"Rotate 90 Degrees Right\"\);\n\
-        saveAs\(\"GEL\", \"[file root $gui(filename)]-rot.gel\"\);\n\
+        saveAs\(\"TIF\", \"[file root $gui(filename)]-rot.gel\"\);\n\
        " "macro.imj"
       exec [auto_execok java] -jar /usr/share/java/ij.jar -Xmx1666m -batch macro.imj
-      set gui(pic) [image create photo -gamma 1.0 -file "[file root $gui(filename)]-rot.gel"]
-    } else {
-      set gui(pic) [image create photo -gamma 1.0 -file $gui(filename)]
+      file rename "[file root $gui(filename)]-rot.tif" "[file root $gui(filename)]-rot.gel"
+#      set gui(pic) [image create photo -gamma 1.0 -file "[file root $gui(filename)]-rot.gel"]
+      set gui(filename) "[file root $gui(filename)]-rot.gel"
     }
+    set gui(pic) [image create photo -gamma 1.0 -file $gui(filename)]
+#tiff/tif file
   } elseif {[file extension $gui(filename)] == ".tif" || [file extension $gui(filename)] == ".tiff"} {
     set tiffinfo1 [::tiff::dimensions $gui(filename)]
     set picw [lindex $tiffinfo1 0]
@@ -2952,16 +3005,20 @@ proc readimage {} {
     array set tiffinfo2 [::tiff::imageInfo $gui(filename)]
     set gui(picres) [expr {0.01/$tiffinfo2(XResolution)}]
     if {$pich > $picw} {
+      if {[file exists "[file root $gui(filename)]-rot.tif"]} {
+        file delete "[file root $gui(filename)]-rot.tif"
+      }
       string2file "\
         open\(\"$gui(filename)\"\);\n\
         run\(\"Rotate 90 Degrees Right\"\);\n\
         saveAs\(\"TIF\", \"[file root $gui(filename)]-rot.tif\"\);\n\
        " "macro.imj"
       exec [auto_execok java] -jar /usr/share/java/ij.jar -Xmx1666m -batch macro.imj
-      set gui(pic) [image create photo -gamma 0.02 -file "[file root $gui(filename)]-rot.tif"]
-    } else {
-      set gui(pic) [image create photo -gamma 0.02 -file $gui(filename)]
+#      set gui(pic) [image create photo -gamma 0.01 -file "[file root $gui(filename)]-rot.tif"]
+      set gui(filename) "[file root $gui(filename)]-rot.tif"
     }
+    set gui(pic) [image create photo -file $gui(filename)]
+#png file
   } elseif {[file extension $gui(filename)] == ".png"} {
     set pnginfo1 [exec [auto_execok pnginfo] $gui(filename)]
     for {set i 0} {$i < [llength $pnginfo1]} {incr i} {
@@ -2977,20 +3034,23 @@ proc readimage {} {
       }
     }
     if {$pich > $picw} {
+      if {[file exists "[file root $gui(filename)]-rot.png"]} {
+        file delete "[file root $gui(filename)]-rot.png"
+      }
       string2file "\
         open\(\"$gui(filename)\"\);\n\
         run\(\"Rotate 90 Degrees Right\"\);\n\
         saveAs\(\"PNG\", \"[file root $gui(filename)]-rot.png\"\);\n\
        " "macro.imj"
       exec [auto_execok java] -jar /usr/share/java/ij.jar -Xmx1666m -batch macro.imj
-      set gui(pic) [image create photo -gamma 0.1 -file "[file root $gui(filename)]-rot.png"]
-    } else {
-      set gui(pic) [image create photo -gamma 0.1 -file $gui(filename)]
+#      set gui(pic) [image create photo -gamma 0.1 -file "[file root $gui(filename)]-rot.png"]
+      set gui(filename) "[file root $gui(filename)]-rot.png"
     }
+    set gui(pic) [image create photo -file $gui(filename)]
   }
   if {$gui(filename) != ""} {
     if {[file extension $gui(filename)] == ".tif" || [file extension $gui(filename)] == ".tiff"} {
-      set gui(picth) [image create photo -gamma 0.01]
+      set gui(picth) [image create photo -gamma 0.3]
     } elseif {[file extension $gui(filename)] == ".gel"} {
       set gui(picth) [image create photo -gamma 1.0]
     } else {
@@ -3012,6 +3072,53 @@ proc readimage {} {
     .status.msg configure -text ""
     set gui(filename) empty
     wm title . "IP reader-$gui(version), filename:[lindex [file split $gui(filename)] end]"
+  }
+}
+
+
+proc updategamma {gammascale} {
+  global gui
+  array set gammalookup {
+  1 0.005
+  2 0.01
+  3 0.02
+  4 0.04
+  5 0.08
+  6 0.16
+  7 0.32
+  8 0.64
+  9 1.0
+  10 1.5
+  11 2.25
+  12 3.375
+  13 5.06
+  14 7.59
+  15 11.4
+  16 25.6
+  17 38.4
+  18 57.7
+  19 86.5
+  20 129.8
+  }
+  set gui(gamma) $gammalookup($gammascale)
+  if {$gui(filename) != ""} {
+    if {[file extension $gui(filename)] == ".tif" || [file extension $gui(filename)] == ".tiff"} {
+      set gui(picth) [image create photo -gamma $gui(gamma)]
+    } elseif {[file extension $gui(filename)] == ".gel"} {
+      set gui(picth) [image create photo -gamma $gui(gamma)]
+    } else {
+      set gui(picth) [image create photo -gamma $gui(gamma)]
+    }
+    set gui(pich) [image height $gui(pic)]
+    set gui(picw) [image width $gui(pic)]
+    set gui(subsamplew) [expr {$gui(picw)/$gui(imagewidth)+1}]
+    set gui(subsampleh) [expr {$gui(pich)/$gui(imageheight)+1}]
+    $gui(picth) copy $gui(pic) -subsample $gui(subsamplew) $gui(subsampleh)
+    set gui(imageexpdiff) [.main.topimage create image 0 0 -anchor nw -image $gui(picth)]
+    .main.topimage raise box
+    mousebindings
+    set gui(picthumbh) [image height $gui(picth)]
+    set gui(picthumbw) [image width $gui(picth)]
   }
 }
 
@@ -3126,46 +3233,93 @@ proc erasedvalues {graphnum} {
       }
       incr i
     }
+  } else {
+    if {$graphnum == 1} {
+      set gui(botgraphfitted) 1
+      .main.botcontr.chkbutton configure -state disabled
+      if {[winfo exists .main.botgraph] && [.main.botgraph marker exists marker0]} {
+        foreach marker [.main.botgraph marker names marker*] {.main.botgraph marker delete $marker}
+      }
+    } elseif {$graphnum == 0} {
+      set gui(midgraphfitted) 1
+      .main.midcontr.chkbutton configure -state disabled
+      if {[winfo exists .main.midgraph] && [.main.midgraph marker exists marker0]} {
+        foreach marker [.main.midgraph marker names marker*] {.main.midgraph marker delete $marker}
+      }
+    }
   }
 }
 
 
+proc make2thetalist {refnum} {
+  global gui
+  set piby180 [expr {acos(0.0)/90.0}]
+#set lattice parameters
+  set a [lindex [lindex $gui($refnum) 0] 0]
+  set b [lindex [lindex $gui($refnum) 0] 1]
+  set c [lindex [lindex $gui($refnum) 0] 2]
+  set alpha [lindex [lindex $gui($refnum) 0] 3]
+  set beta [lindex [lindex $gui($refnum) 0] 4]
+  set gamma [lindex [lindex $gui($refnum) 0] 5]
+  set i 0
+  set txydatasortedbytheta ""
+  foreach hkl [lindex $gui($refnum) 1] {
+    set dvalue [hkl2dvalue $a $b $c $alpha $beta $gamma [lindex $hkl 1] [lindex $hkl 2] [lindex $hkl 3]]
+    if {$dvalue >= [expr $gui(wavelength)/2.0]} {
+      set theta [expr {asin($gui(wavelength)/$dvalue/2.0)/$piby180*2.0}]
+#Intensities need to be corrected for Guinier geometry XXX
+      lappend txydatasortedbytheta [list $theta [expr {[lindex $hkl 0]}]]
+    }
+  }
+#cleanup reflection list:
+#  add intensity of reflections with the same 2theta value
+#  same means smaller difference than 0.00001°
+  set txydatasortedbytheta [lsort -real -increasing -index 0 $txydatasortedbytheta]
+  set newlist ""
+  for {set i 0} {$i < [llength $txydatasortedbytheta]} {incr i} {
+    set theta [lindex [lindex $txydatasortedbytheta $i] 0]
+    set inten [lindex [lindex $txydatasortedbytheta $i] 1]
+    set indexoftwin -1
+    for {set j 0} {$j < [llength $newlist]} {incr j} {
+      if {[expr {abs([lindex [lindex $newlist $j] 0]-$theta)}] < 0.00001} {
+        set indexoftwin $j
+        lset newlist $indexoftwin 1 [expr {[lindex [lindex $newlist $indexoftwin] 1]+$inten}]
+        break
+      }
+    }
+    if {$indexoftwin < 0} {
+      lappend newlist [lindex $txydatasortedbytheta $i]
+    }
+  }
+  return $newlist
+}
+
 proc drawdvalues {graphnum} {
   global gui
   if {$gui(sampletype$graphnum) != "sample"} {
+    if {$graphnum == 1} {
+      set gui(botgraphfitted) 1
+      .main.botcontr.chkbutton configure -state normal
+    } elseif {$graphnum == 0} {
+      set gui(midgraphfitted) 1
+      .main.midcontr.chkbutton configure -state normal
+    }
     set refnum [lindex $gui(refdatasets) [lsearch $gui(sampletypes) $gui(sampletype$graphnum)]]
     set piby180 [expr {acos(0.0)/90.0}]
 #set lattice parameters
-    set a [lindex [lindex $gui($refnum) 0] 0]
-    set b [lindex [lindex $gui($refnum) 0] 1]
-    set c [lindex [lindex $gui($refnum) 0] 2]
-    set alpha [lindex [lindex $gui($refnum) 0] 3]
-    set beta [lindex [lindex $gui($refnum) 0] 4]
-    set gamma [lindex [lindex $gui($refnum) 0] 5]
-    set i 0
-    set txydatasortedbytheta ""
-    foreach hkl [lindex $gui($refnum) 1] {
-      set dvalue [hkl2dvalue $a $b $c $alpha $beta $gamma [lindex $hkl 1] [lindex $hkl 2] [lindex $hkl 3]]
-      if {$dvalue >= [expr $gui(wavelength)/2.0]} {
-        set theta [expr {asin($gui(wavelength)/$dvalue/2.0)/$piby180*2.0}]
-        lappend txydatasortedbytheta [list $theta [lindex $hkl 0]]
-      }
-    }
-    set txydatasortedbytheta [lsort -real -increasing -index 0 $txydatasortedbytheta]
+    set txydatasortedbytheta [make2thetalist $refnum]
     set txydatasortedbyint   [lsort -real -decreasing -index 1 $txydatasortedbytheta]
     set norm [lindex [lindex $txydatasortedbyint 0] 1]
     set thetamax [lindex [lindex $txydatasortedbyint 0] 0]
 #calculate d-values, theta-values and intensities
 #suppress if thetavalues are out of range
-    foreach hkl [lindex $gui($refnum) 1] {
-      set dvalue [hkl2dvalue $a $b $c $alpha $beta $gamma [lindex $hkl 1] [lindex $hkl 2] [lindex $hkl 3]]
-      if {$graphnum == 1 && $dvalue >= [expr $gui(wavelength)/2.0]} {
-        set theta [expr {asin($gui(wavelength)/$dvalue/2.0)/$piby180*2.0}]
-        set int [expr {[lindex $hkl 0]/$norm*$gui(ydatamax$graphnum)}]
+    set i 0
+    foreach peak $txydatasortedbytheta {
+      set theta [lindex $peak 0]
+      set int [expr {[lindex $peak 1]/$norm*$gui(ydatamax$graphnum)}]
+      if {$graphnum == 1 && [lindex $peak 0] < 180.0} {
         .main.botgraph marker create line -name marker$i -coords [list $theta 0.0 $theta $int] -outline blue
-      } elseif {$graphnum == 0 && $dvalue >= [expr $gui(wavelength)/2.0]} {
-        set theta [expr {asin($gui(wavelength)/$dvalue/2.0)/$piby180*2.0}]
-        set int [expr {[lindex $hkl 0]/$norm*$gui(ydatamax$graphnum)}]
+      } elseif {$graphnum == 0 &&  [lindex $peak 0] < 180.0} {
         .main.midgraph marker create line -name marker$i -coords [list $theta 0.0 $theta $int] -outline blue
       }
       incr i
@@ -3238,7 +3392,7 @@ proc drawdvalues {graphnum} {
               }
               incr j
             }
-            if {$smallestxdiff < 5.0} {
+            if {$smallestxdiff < 5.0 && [lsearch -index 1 $exp2theo $smallesti] == -1} {
               lappend exp2theo [list $i $smallesti]
             }
 #calc new scaleA scaleB
@@ -3283,7 +3437,6 @@ proc drawdvalues {graphnum} {
       set exp2theo [lindex $bestfit 4]
 #exclude outlier
       if {[lindex $bestfit 2] > 0} {
-#        puts $bestfit
         set exdata ""
         set txdata ""
         foreach pair $exp2theo {
@@ -3312,6 +3465,18 @@ proc drawdvalues {graphnum} {
   updategraph
 }
 
+
+proc manualscale {} {
+  global gui
+  updategraph
+  if {$gui(sampletype1) != "sample"} {
+    set gui(botgraphfitted) 0
+  }
+  if {$gui(sampletype0) != "sample"} {
+    set gui(midgraphfitted) 0
+  }
+}
+
 proc maingui {} {
   global gui
   wm title . "IP reader-$gui(version), filename:[lindex [file split $gui(filename)] end]"
@@ -3331,8 +3496,8 @@ proc maingui {} {
             {File formats} {gel-format (GE, Fujitsu); tif (16bit); png (imported as 8bit even if it has higher resolution)}\
             {Usage} {The program is written in the scripting language TCL/TK.}\
             {Missing} {The peak positions are determined using non-linear interpolation. The calibration vs reflection positions of a known reference compound uses linear regression. The bigger the box perpendicular to the angular scale the better the signal to noise.}\
-            {Note} {Mental support in form of gummy bears and friendly emails is always welcome.}\
-            {copyright (C) 2013-2021 Joern Schmedt auf der Guenne} {
+            {Note} {Mental support in form of friendly emails is always welcome.}\
+            {copyright (C) 2013-2022 Joern Schmedt auf der Guenne} {
 This program is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version. This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. A copy of the GNU General Public License was distributed along with this program; if not, see <http://www.gnu.org/licenses/>.}\
 }
   .menu.file.m add command -label "load image" -command {
@@ -3344,11 +3509,49 @@ This program is free software; you can redistribute it and/or modify it under th
   frame .main.topcontr
   canvas .main.topimage -width $gui(imagewidth) -height $gui(imageheight)
   ttk::combobox .main.topcontr.radiation -state readonly -values $gui(radiations) -width 15 -textvariable gui(radiation)
-  pack .main.topcontr.radiation
+  label .main.topcontr.label -text "\n2theta = A+B*x"
+  spinbox .main.topcontr.scaleA -textvariable gui(scaleA) -from 0.0 -to 180.0 -increment 0.05 -command manualscale -takefocus 1
+  spinbox .main.topcontr.scaleB -textvariable gui(scaleB) -from 0.001 -to 1000.0 -increment 0.001 -command manualscale -takefocus 1
+  label .main.topcontr.gammalabel -text "\nbrightness"
+  scale .main.topcontr.gamma -variable gui(gammascale) -command updategamma -from 1 -to 20 -orient horizontal
+  bind .main.topcontr.scaleA <Return> {
+    if {[string is double $gui(scaleA)]} {
+      manualscale
+    } else {
+      set gui(scaleA) 0.0
+      manualscale
+    }
+  }
+  bind .main.topcontr.scaleA <Return> {
+    if {[string is double $gui(scaleA)]} {
+      manualscale
+    } else {
+      set gui(scaleA) 1.0
+      manualscale
+    }
+  }
+  bind .main.topcontr.scaleB <Return> {
+    if {[string is double $gui(scaleB)]} {
+      manualscale
+    } else {
+      set gui(scaleB) 1.0
+      manualscale
+    }
+  }
+  bind .main.topcontr.scaleB <Return> {
+    if {[string is double $gui(scaleB)]} {
+      manualscale
+    } else {
+      set gui(scaleB) 1.0
+      manualscale
+    }
+  }
+  pack .main.topcontr.radiation .main.topcontr.gammalabel .main.topcontr.gamma .main.topcontr.label .main.topcontr.scaleA .main.topcontr.scaleB
 #middle graph
   frame .main.midcontr
   ttk::combobox .main.midcontr.sampletype -values $gui(sampletypes) -width 15 -textvariable gui(sampletype0) -postcommand {erasedvalues 0} -state disabled
-  pack .main.midcontr.sampletype
+  checkbutton .main.midcontr.chkbutton -variable gui(midgraphfitted) -text "fitted" -state disabled -command {fitscale 0 ; fitscale 0}
+  pack .main.midcontr.sampletype .main.midcontr.chkbutton
   blt::graph .main.midgraph -background white -plotbackground white -width $gui(graphwidth) -height $gui(graphheight)
   .main.midgraph element create line1 \
       -xdata {0.0 120.0} \
@@ -3362,7 +3565,8 @@ This program is free software; you can redistribute it and/or modify it under th
 #bottom graph
   frame .main.botcontr
   ttk::combobox .main.botcontr.sampletype -values $gui(sampletypes) -width 15 -textvariable gui(sampletype1) -postcommand {erasedvalues 1} -state disabled
-  pack .main.botcontr.sampletype
+  checkbutton .main.botcontr.chkbutton -variable gui(botgraphfitted) -text "fitted" -state disabled -command {fitscale 1; fitscale 1}
+  pack .main.botcontr.sampletype .main.botcontr.chkbutton
   blt::graph .main.botgraph -background white -plotbackground white -width $gui(graphwidth) -height $gui(graphheight)
   .main.botgraph element create line1 \
     -xdata {0.0 120.0} \
