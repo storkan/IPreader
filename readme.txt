@@ -1,5 +1,5 @@
 Author and Copyright owner: Jörn Schmedt auf der Günne
-Years 2013-2021
+Years 2013-2022
 
 #----------------------------------------------
 #Usage:
