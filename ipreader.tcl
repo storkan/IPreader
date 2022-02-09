@@ -31,14 +31,15 @@ set gui(picthumbh) 0
 set gui(picthumbw) 0
 set gui(bit) 16
 set gui(maxyvalue) 65535
-set gui(sampletypes) [list "alpha-SiO2" "Si-diamond" "CaWO4 tetragonal" "C-diamond" "LaB6" "sample"]
+set gui(sampletypes) [list "SRM1878b-low-SiO2" "SRM640f-Si-diamond" "CaWO4 tetragonal" "C-diamond" "SRM660C-LaB6" "sample"]
 set gui(refdatasets) [list "refSiO2alpha" "refSi" "refCaWO4" "refC" "refLaB6"]
 set gui(sampletype1) "sample"
 set gui(sampletype0) "sample"
-set gui(radiations) [list CuKalpha1 CrKalpha1 MoKalpha1]
+set gui(radiations) [list CuKalpha1 CrKalpha1 MoKalpha1 WKalpha1]
 set gui(radiation) CuKalpha1
-set gui(wavelengths) [list 1.540598 2.289760 0.7093187]
-set gui(wavelength) 1.540598
+#source of wavelengths: Cu, Mo, W -> COdata2010; Cr -> ?
+set gui(wavelengths) [list 1.54059313 2.289760 0.70931711 0.20901312]
+set gui(wavelength) 1.54059313
 set gui(scaleA) 0.0
 set gui(scaleB) 0.99401602354
 set gui(scaleAerror) -1
@@ -56,9 +57,10 @@ catch {tk_getOpenFile foo bar}
 set ::tk::dialog::file::showHiddenBtn 0
 set ::tk::dialog::file::showHiddenVar 0
 
-#reference Si 51688
+#reference Si 51688 for hkl and intensities
 #I l k h
-set gui(refSi) [list [list 5.4305 5.4305 5.4305 90.0 90.0 90.0] [list \
+#lattice parameters from SRM640f certificate
+set gui(refSi) [list [list 5.431144 5.431144 5.431144 90.0 90.0 90.0] [list \
 {2178659.04	1	1	1	} \
 {1625756.25	0	2	2	} \
 {1018931.98	1	1	3	} \
@@ -125,8 +127,10 @@ set gui(refSi) [list [list 5.4305 5.4305 5.4305 90.0 90.0 90.0] [list \
 {5238.79 	3	9	9	} \
 ]]
 
-#reference alpha-SiO2 162490
-set gui(refSiO2alpha) [list [list 4.9134 4.9134 5.4051 90.0 90.0 120.0] [list \
+#reference alpha-SiO2 162490 for hkl and intensities
+#I l k h
+#lattice parameters from SRM1878b certificate
+set gui(refSiO2alpha) [list [list 4.91378 4.91378 5.40536 90.0 90.0 120.0] [list \
 {15.44	0	1	0	} \
 {38.78	0	1	1	} \
 {25.01	-1	1	1	} \
@@ -2027,8 +2031,10 @@ set gui(refC) [list [list 3.566990 3.566990 3.566990 90.0 90.0 90.0] [list \
 {  2.80295  0   4   8  } \
 ]]
 
-#reference LaB6 ICSD 152466
-set gui(refLaB6) [list [list 4.1549 4.1549 4.1549 90.0 90.0 90.0] [list \
+#reference LaB6 ICSD 152466 for hkl and intensities
+#I l k h
+#lattice parameters from SRM660c certificate
+set gui(refLaB6) [list [list 4.156826 4.156826 4.156826 90.0 90.0 90.0] [list \
 { 59.98765   0 0   1 } \
 {100.00000   0 1   1 } \
 { 43.58605   1 1   1 } \
@@ -2880,7 +2886,7 @@ proc mousebindings {} {
   }
   bind .main.topimage <ButtonRelease-1> {
     global gui
-    if {[expr {abs($gui(x2s)-$gui(x1s))}] > 30 && [expr {abs($gui(y2s)-$gui(y1s))}]> 30 } {
+    if {[expr {abs($gui(x2s)-$gui(x1s))}] > 30 && [expr {abs($gui(y2s)-$gui(y1s))}]> 10 } {
 #activate take buttons
       .main.midcontr.take configure -state normal
       .main.botcontr.take configure -state normal
