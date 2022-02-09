@@ -9,7 +9,7 @@ package require math::statistics
 load /usr/local/Library/IPreader/libtiffread1[info sharedlibextension]
 #important: a released version must not have more than 3 characters for the version number
 #otherwise export to STOE raw will not work
-set gui(version) 1.7
+set gui(version) 1.8
 set gui(fontbold) "helvetica 10 bold"
 set gui(fontbigbold) "helvetica 11 bold"
 set gui(fontnormal) "helvetica 10 normal"
