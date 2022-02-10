@@ -1,3 +1,7 @@
+xx.xx.2022 version 1.8pre
+-added: wavelength of CrKalpha1, AgKalpha1 taken from International Tables Volume C 3rd ed., Table 4.2.2.5
+-changed: wavelength of CuKalpha1, MoKalpha1, WKalpha1 taken from COdata10
+          lattice parameters from Si, LaB6 and SiO2 set to NIST SRM certificate values
 --------------------------------------
 05.02.2022 version 1.7
 -fixed: errors caused in automatic scale calculation: code cleanup, proc make2thetalist added, doubles in reference peaklist removed, 
