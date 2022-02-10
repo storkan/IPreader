@@ -35,10 +35,11 @@ set gui(sampletypes) [list "SRM1878b-low-SiO2" "SRM640f-Si-diamond" "CaWO4 tetra
 set gui(refdatasets) [list "refSiO2alpha" "refSi" "refCaWO4" "refC" "refLaB6"]
 set gui(sampletype1) "sample"
 set gui(sampletype0) "sample"
-set gui(radiations) [list CuKalpha1 CrKalpha1 MoKalpha1 WKalpha1]
+set gui(radiations) [list CuKalpha1 MoKalpha1 WKalpha1 CrKalpha1 AgKalpha1]
 set gui(radiation) CuKalpha1
-#source of wavelengths: Cu, Mo, W -> COdata2010; Cr -> ?
-set gui(wavelengths) [list 1.54059313 2.289760 0.70931711 0.20901312]
+#source of wavelengths: Cu, Mo, W -> COdata2010;
+#                       Cr, Ag, -> Int.Tab.Cryst. Vol. C, Table 4.2.2.4
+set gui(wavelengths) [list 1.54059313 0.70931711 0.20901312 2.2897260 0.55942178]
 set gui(wavelength) 1.54059313
 set gui(scaleA) 0.0
 set gui(scaleB) 0.99401602354
